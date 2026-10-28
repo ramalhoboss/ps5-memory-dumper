@@ -8,6 +8,8 @@
   <img alt="GUI" src="https://img.shields.io/badge/GUI-PySide6%20(Qt%206)-0b0b0b?labelColor=1b1b1b&color=d6a849">
   <img alt="Payload" src="https://img.shields.io/badge/payload-ps5debug--NG-0b0b0b?labelColor=1b1b1b&color=2f8cff">
   <img alt="Version" src="https://img.shields.io/badge/version-2.0.0-0b0b0b?labelColor=1b1b1b&color=d6a849">
+  <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/badge/licence-GPL--3.0-0b0b0b?labelColor=1b1b1b&color=2f8cff"></a>
+  <a href="https://github.com/ramalhoboss/ps5-memory-dumper/releases/latest"><img alt="Download" src="https://img.shields.io/badge/download-Windows%20.exe-0b0b0b?labelColor=1b1b1b&color=d6a849"></a>
 </p>
 
 # PS5 Memory Dumper
@@ -34,7 +36,8 @@ Developed by **RamalhoBoss** · [x.com/nuno_leugim_10](https://x.com/nuno_leugim
 - [Features](#features) · [Screenshots](#screenshots) · [Getting started](#getting-started)
 - [Using the app](#using-the-app) · [Command line](#command-line)
 - [How it works](#how-it-works) · [Output format](#output-format) · [Building the .exe](#building-the-exe)
-- [Project layout](#project-layout) · [Testing and status](#testing-and-status) · [Credits and licences](#credits-and-licences)
+- [Project layout](#project-layout) · [Testing and status](#testing-and-status) · [Original script](#original-script) ·
+  [Credits and licences](#credits-and-licences)
 
 ## Features
 
@@ -87,8 +90,11 @@ Developed by **RamalhoBoss** · [x.com/nuno_leugim_10](https://x.com/nuno_leugim
 
 ### Option 1: the Windows app
 
-Build `PS5 Memory Dumper.exe` once (see [Building the .exe](#building-the-exe)) and copy that single file anywhere:
-no Python or other files are needed. Dumps are saved in a `dumps` folder next to the `.exe`.
+Download **`PS5 Memory Dumper.exe`** (or the `.zip` with the licence files) from the
+[latest release](https://github.com/ramalhoboss/ps5-memory-dumper/releases/latest) and run it: it is one
+self-contained file, no Python or other files needed. Dumps are saved in a `dumps` folder next to the `.exe`.
+Windows SmartScreen may warn about an unsigned app the first time; choose *More info → Run anyway*. You can also
+build it yourself (see [Building the .exe](#building-the-exe)).
 
 ### Option 2: from source
 
@@ -344,6 +350,7 @@ ps5dumper/
 └── __main__.py      python -m ps5dumper → app (with arguments → command line)
 tests/                     offline regression tests
 docs/images/               README graphics
+legacy/                    the original single-file script by RamalhoBoss (Portuguese)
 PS5 Memory Dumper.pyw      app launcher without a console window
 ps5_dumper.py              command-line entry point
 segment_memory.py          split / restore entry point
@@ -364,6 +371,12 @@ compare and search) and against real dumps (flat images, ELF export checked with
 **Not yet verified on hardware**: the real payload's behaviour on dropped connections, refused kernel pages and
 resume timing, and the automatic kernel capture, still need a first run on a console.
 
+## Original script
+
+The project started as a single Python script by RamalhoBoss, kept unchanged in
+[`legacy/ps5_dumper_original_pt.py`](legacy/ps5_dumper_original_pt.py) (Portuguese). PS5 Memory Dumper is its
+evolution and still reads the dumps it made (`mapas.json`).
+
 ## Credits and licences
 
 - [ps5dbg](https://github.com/Darkatek7/ps5dbg): Python client for the ps5debug-NG protocol (GPL-3.0).
@@ -371,8 +384,9 @@ resume timing, and the automatic kernel capture, still need a first run on a con
 - [kdump_ps5](https://github.com/earthonion/kdump_ps5): kernel module-info size discovery and request size.
 - [Qt for Python (PySide6)](https://doc.qt.io/qtforpython-6/) (LGPL-3.0) and [PyInstaller](https://pyinstaller.org).
 
-No licence has been chosen for this project yet; until one is added, all rights are reserved by the author. Because
-the app uses `ps5dbg` (GPL-3.0) and the `.exe` bundles it, distributing builds must follow the GPL-3.0.
+PS5 Memory Dumper is © RamalhoBoss and released under the **GNU General Public License v3.0**: see
+[LICENSE](LICENSE). The licences of the bundled components are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 PlayStation and PS5 are trademarks of Sony Interactive Entertainment. This project is not affiliated with or
 endorsed by Sony.
