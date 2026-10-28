@@ -9,3 +9,4 @@ line and a desktop app, plus resume, auto-reconnect, ELF export and dump analysi
 made by this script (`mapas.json` is converted automatically).
 
 It is kept here unchanged, for reference. To run it: `python ps5_dumper_original_pt.py` (needs `ps5dbg`).
+Like the app, its kernel mode (PID 0) requires the hypervisor to be disabled on the PS5 first.

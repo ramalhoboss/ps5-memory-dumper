@@ -28,6 +28,9 @@ PROT_BITS = {"r": 1, "w": 2, "x": 4}
 MAX_EMPTY_REGIONS = 3  # consecutive regions without data before switching to economy mode
 DEFAULT_RETRIES = 5  # reconnections per request before a dump gives up
 MAX_RECONNECT_DELAY = 30  # seconds
+HYPERVISOR_WARNING = ("Kernel dumps require the hypervisor to be disabled on the PS5: run the hypervisor bypass "
+                      "after the jailbreak and before loading ps5debug-NG. With the hypervisor active, kernel "
+                      "code cannot be read and a kernel read can restart the console.")
 GAP_NOTES = {
     "zeros": ("File offset = address - start. Unreadable gaps before received data are zero-filled; "
               "trailing unreadable bytes are omitted. Every gap [start, end) is listed in 'gaps'."),
@@ -294,6 +297,7 @@ def dump_kernel(ps5, folder, size=None, start=None, reporter=None, cancel=None, 
     harmless depends on the payload, and a fault in kernel mode restarts the console.
     """
     reporter = reporter or Reporter()
+    reporter.log(HYPERVISOR_WARNING, "warn")
     # Validate the explicit size/address before sending any command.
     automatic = size is None and start is None
     if automatic and recover:
@@ -318,7 +322,8 @@ def dump_kernel(ps5, folder, size=None, start=None, reporter=None, cancel=None, 
                     base_source="CMD_KERN_BASE: .data base, not the ELF start",
                     full_kernel=False, requested_size=size, block_size=KERNEL_BLOCK, recover=recover,
                     note="Requested range; permissions and the full map were not obtained. "
-                         "Sequential capture, not atomic." + (" " + GAP_NOTES["zeros"] if recover else ""),
+                         "Sequential capture, not atomic; requires the hypervisor disabled on the PS5."
+                         + (" " + GAP_NOTES["zeros"] if recover else ""),
                     regions=[item])
     if layout:
         item["name"] = "kernel_image"
@@ -327,7 +332,7 @@ def dump_kernel(ps5, folder, size=None, start=None, reporter=None, cancel=None, 
                         kernel_firmware=layout["firmware"],
                         layout_source="kdump module-info size; ps5debug-NG SDK firmware offsets",
                         note="Detected text base and module size. Sequential capture, not atomic; "
-                             "requires console-side hypervisor bypass.")
+                             "requires the hypervisor disabled on the PS5 (hypervisor bypass).")
     save_manifest(folder, document)
     reporter.log(f"Kernel .data base: 0x{data_base:x}", "ok")
     reporter.log(f"Range: 0x{address:x}-0x{address + size:x} ({size / MIB:.2f} MiB)")
@@ -437,6 +442,7 @@ def resume_dump(ps5, folder, reporter=None, cancel=None, retry_gaps=False, retri
 
 
 def _resume_kernel(ps5, folder, document, reporter, cancel, retry_gaps, retries):
+    reporter.log(HYPERVISOR_WARNING, "warn")
     base = kernel_data_base(ps5)
     if document.get("kernel_data_base") and int(document["kernel_data_base"], 16) != base:
         raise ResumeError("The kernel .data base changed: the console restarted, so the range must be dumped again")

@@ -4,7 +4,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QFileDialog, QMessageBox, QSplitter, QVBoxLayout, QWidget
 
-from ...core.dumper import prot_string, resume_dump
+from ...core.dumper import HYPERVISOR_WARNING, prot_string, resume_dump
 from ...core.files import MAX_MERGE_SPAN, export_elf, merge_regions
 from ...core.manifest import dump_status, list_dumps, process_name, started_at
 from ...core.reader import MIB
@@ -250,7 +250,8 @@ class DumpsPage(QWidget):
         box = QMessageBox(QMessageBox.Question, "Resume dump",
                           f"Resume {folder.name}?\n\nComplete regions are kept, interrupted regions continue where "
                           "they stopped, and regions never started are read. The process must still be running "
-                          "with the same PID (for the kernel: the console must not have restarted).", parent=self)
+                          "with the same PID (for the kernel: the console must not have restarted)."
+                          + ("\n\n" + HYPERVISOR_WARNING if document.get("type") == "kernel" else ""), parent=self)
         retry = QCheckBox("Also read unreadable gaps again")
         retry.setChecked(status == "incomplete")
         box.setCheckBox(retry)

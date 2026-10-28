@@ -1,9 +1,11 @@
 """Process dumps and explicit kernel ranges via ps5debug (command line).
 
 PID 0 uses kern_base/kern_read; it does not use process maps. With no size/start,
-firmware 13.60 uses the kdump module-info method to detect full-kernel bounds
-(requires console-side hypervisor bypass). Explicit ranges are not full kernels. Offline actions (--concat,
---export-elf, --compare, --search) work on saved dumps without the console.
+firmware 13.60 uses the kdump module-info method to detect full-kernel bounds.
+Kernel dumps (--kernel / PID 0, full or explicit range) require the hypervisor to be
+disabled on the PS5 (hypervisor bypass) before loading ps5debug-NG. Explicit ranges are
+not full kernels. Offline actions (--concat, --export-elf, --compare, --search) work on
+saved dumps without the console.
 """
 import argparse
 import re
@@ -17,8 +19,8 @@ from . import AUTHOR, AUTHOR_URL
 from .core.analysis import CONDITIONS, VALUE_TYPES, compare_dumps, next_scan, scan_rows, search
 from .core.analysis import write_compare_csv, write_scan_csv
 from .core.console import connect, discover_consoles, process_details
-from .core.dumper import (DEFAULT_RETRIES, KERNEL_ADDRESS_MIN, KERNEL_LIMIT, create_output_dir, dump_kernel,
-                          dump_process, filter_regions, parse_prot, readable_regions, resume_dump, safe_name,
+from .core.dumper import (DEFAULT_RETRIES, HYPERVISOR_WARNING, KERNEL_ADDRESS_MIN, KERNEL_LIMIT, create_output_dir,
+                          dump_kernel, dump_process, filter_regions, parse_prot, readable_regions, resume_dump, safe_name,
                           summarize, validate_kernel_range)
 from .core.files import ELF_TYPES, concatenate_files, export_elf, list_bin_files
 from .core.manifest import MANIFEST_NAME, load_manifest
@@ -142,14 +144,16 @@ def build_parser():
     console.add_argument("--retries", type=int, default=DEFAULT_RETRIES,
                          help=f"reconnections per request when the connection drops (default {DEFAULT_RETRIES}; 0 = off)")
     dump = parser.add_argument_group("dump")
-    dump.add_argument("--kernel", action="store_true", help="read a kernel range, without PID/maps")
+    dump.add_argument("--kernel", action="store_true",
+                      help="dump kernel memory, without PID/maps; requires the hypervisor to be disabled on the PS5")
     dump.add_argument("--size-mib", type=int, default=None, help="explicit range size in MiB (max 83); omitted with no --start: detect full kernel on 13.60")
     dump.add_argument("--start", type=lambda s: int(s, 0), help="explicit address, for example 0xffff...")
     dump.add_argument("--kernel-recover", action="store_true",
                       help="EXPERIMENTAL: bisect refused kernel blocks and zero-fill them; a fault in kernel mode "
                            "restarts the console")
     dump.add_argument("--output", help="new destination folder; never replaces existing folders")
-    dump.add_argument("--pid", type=int, help="PID to dump (0 = kernel); skips the interactive menu")
+    dump.add_argument("--pid", type=int,
+                      help="PID to dump (0 = kernel, hypervisor must be disabled); skips the interactive menu")
     dump.add_argument("--prot", help="only regions with all these permissions, for example x or rw "
                                      "(processes and --export-elf)")
     dump.add_argument("--name", help="only regions whose name contains this text, case-insensitive "
@@ -366,6 +370,11 @@ def main(argv=None):
             if kernel:
                 if uses_filters:
                     raise ValueError("--prot/--name/--max-region-mib apply to processes only")
+                if not non_interactive:
+                    print(f"\n[!] {HYPERVISOR_WARNING}")
+                    if input("[?] Is the hypervisor disabled on the PS5? (y/N): ").strip().lower() not in ("y", "yes", "s", "sim"):
+                        print("[-] Kernel dump not started: disable the hypervisor first")
+                        return 0
                 operation = "kernel read"
                 amount = args.size_mib
                 automatic = amount is None and args.start is None

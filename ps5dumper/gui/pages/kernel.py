@@ -2,7 +2,7 @@
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QLineEdit,
                                QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
-from ...core.dumper import (KERNEL_ADDRESS_MIN, KERNEL_LIMIT, create_output_dir, dump_kernel,
+from ...core.dumper import (HYPERVISOR_WARNING, KERNEL_ADDRESS_MIN, KERNEL_LIMIT, create_output_dir, dump_kernel,
                             kernel_data_base, validate_kernel_range)
 from ...core.reader import MIB
 from ..dialogs import confirm, describe_error, show_dump_failure, show_dump_result
@@ -16,9 +16,13 @@ class KernelPage(QWidget):
         self.session, self.settings = session, settings
         self.data_base = None
 
+        hypervisor = Card("Disable the hypervisor first", tone="warning")
+        hypervisor.body.addWidget(label(
+            HYPERVISOR_WARNING + " This applies to the full kernel and to manual ranges.", wrap=True))
         guide = Card("Capture the kernel", "Full image capture for firmware 13.60 with ps5debug-NG.")
         guide.body.addWidget(label(
-            "1. On the PS5, run the jailbreak and hypervisor bypass, then load ps5debug-NG.\n"
+            "1. On the PS5, run the jailbreak, then disable the hypervisor (hypervisor bypass), "
+            "then load ps5debug-NG.\n"
             "2. Connect to the console on the Connection page. Keep the console running during capture.\n"
             "3. Choose Full kernel below and start the dump. The app detects the start and exact size.\n"
             "4. Keep the .bin and manifest.json together. Review the result on the Dumps page.",
@@ -86,7 +90,7 @@ class KernelPage(QWidget):
         body = QVBoxLayout(content)
         body.setContentsMargins(0, 0, 8, 0)
         body.setSpacing(16)
-        for card in (guide, capture, notes):
+        for card in (hypervisor, guide, capture, notes):
             body.addWidget(card)
         body.addStretch(1)
         scroll = QScrollArea()
@@ -145,7 +149,8 @@ class KernelPage(QWidget):
             "Recommended for a full image. Start address and size are detected from kernel metadata; "
             "manual fields are not needed." if automatic else
             "Read only a known address range (maximum 83 MiB). This is a partial capture. "
-            "Blank start uses .data, not the start of the full kernel. Invalid addresses may restart the console.")
+            "Blank start uses .data, not the start of the full kernel. The hypervisor must be disabled; "
+            "invalid addresses may restart the console.")
         valid = True
         try:
             start = self.parse_start()
@@ -188,6 +193,9 @@ class KernelPage(QWidget):
         start, size = self.parse_start(), None if automatic else self.amount_bytes()
         root, ip, retries = self.settings.dumps_dir, self.session.ip, self.settings.retries
         recover = self.recover.isChecked() and not automatic
+        if not confirm(self, "Hypervisor disabled?",
+                       HYPERVISOR_WARNING + "\n\nIs the hypervisor disabled on the PS5?"):
+            return
         if recover and not confirm(self, "Experimental kernel recovery",
                                    "Refused pages will be retried in smaller blocks. Invalid kernel addresses "
                                    "can restart the console. Continue?"):
