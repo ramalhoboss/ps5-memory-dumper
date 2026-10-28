@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Build output (rebuild with build_exe.ps1)
+build/
+dist/
+
+# Dumps and console data: large, and may contain copyrighted game code or personal data
+dumps/
+*.bin
+*.raw
+*.elf
+*.pkg
+
+# Local research and scratch work, not part of the app
+analysis/
+payload-fixes/
+legacy/
+tests/check_*.py
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

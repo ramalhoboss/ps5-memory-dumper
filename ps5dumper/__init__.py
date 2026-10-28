@@ -1,0 +1,5 @@
+"""PS5 Memory Dumper: process and kernel memory dumps over the ps5debug payload."""
+__version__ = "2.0.0"
+APP_NAME = "PS5 Memory Dumper"
+AUTHOR = "RamalhoBoss"
+AUTHOR_URL = "https://x.com/nuno_leugim_10"
