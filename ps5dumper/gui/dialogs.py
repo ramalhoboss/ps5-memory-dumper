@@ -65,8 +65,28 @@ def show_dump_failure(parent, error, folder):
     box = QMessageBox(QMessageBox.Information if cancelled else QMessageBox.Critical,
                       "Dump cancelled" if cancelled else "Dump failed", describe_error(error), parent=parent)
     if folder:
-        box.setInformativeText(f"Partial data and {MANIFEST_NAME} are in:\n{folder}")
+        if (Path(folder) / MANIFEST_NAME).is_file():
+            box.setInformativeText(f"Partial data and {MANIFEST_NAME} are in:\n{folder}")
+        else:
+            box.setInformativeText(f"The dump did not reach data capture; no manifest was created.\nFolder: {folder}")
     _with_open_button(box, folder)
+
+
+def show_extract_result(parent, result):
+    found = ", ".join(f"{count} {kind.upper()}" for kind, count
+                      in sorted(result["types"].items(), key=lambda item: -item[1]))
+    lines = [f"Found {result['files']} file(s) in {human_size(result['bytes'])}" + (f": {found}." if found else ".")]
+    if result["repeated"]:
+        lines.append(f"{result['repeated']} repeated file(s) were saved once.")
+    if result["truncated"]:
+        lines.append(f"{result['truncated']} file(s) continue past the end of their region; their names end "
+                     "in _truncated.")
+    if result["strings"]:
+        lines.append(f"{result['strings']:,} text strings saved in the strings folder.")
+    lines.append("index.csv lists the address, size and SHA-256 of every file.")
+    box = QMessageBox(QMessageBox.Information, "Files extracted", "\n\n".join(lines), parent=parent)
+    box.setInformativeText(result["destination"])
+    _with_open_button(box, result["destination"])
 
 
 def confirm(parent, title, text):

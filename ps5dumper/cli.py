@@ -4,8 +4,8 @@ PID 0 uses kern_base/kern_read; it does not use process maps. With no size/start
 firmware 13.60 uses the kdump module-info method to detect full-kernel bounds.
 Kernel dumps (--kernel / PID 0, full or explicit range) require the hypervisor to be
 disabled on the PS5 (hypervisor bypass) before loading ps5debug-NG. Explicit ranges are
-not full kernels. Offline actions (--concat, --export-elf, --compare, --search) work on
-saved dumps without the console.
+not full kernels. Offline actions (--extract, --concat, --export-elf, --compare, --search)
+work on saved dumps without the console.
 """
 import argparse
 import re
@@ -22,6 +22,7 @@ from .core.console import connect, discover_consoles, process_details
 from .core.dumper import (DEFAULT_RETRIES, HYPERVISOR_WARNING, KERNEL_ADDRESS_MIN, KERNEL_LIMIT, create_output_dir,
                           dump_kernel, dump_process, filter_regions, parse_prot, readable_regions, resume_dump, safe_name,
                           summarize, validate_kernel_range)
+from .core.extract import TYPES as EXTRACT_TYPES, extract_files
 from .core.files import ELF_TYPES, concatenate_files, export_elf, list_bin_files
 from .core.manifest import MANIFEST_NAME, load_manifest
 from .core.reader import MIB
@@ -76,6 +77,18 @@ def concatenate_menu():
         print(f"[-] Concatenation failed: {type(error).__name__}: {error}")
 
 
+def extract_menu():
+    try:
+        entry = input("[?] Dump folder, folder with .bin files or one file (Enter = cancel): ").strip().strip('"')
+        if not entry:
+            return
+        strings = input("[?] Also save the text strings? (y/N): ").strip().lower() in ("y", "yes", "s", "sim")
+        result = extract_files(entry, strings=strings, reporter=ConsoleReporter())
+        print(f"[*] {result['index']} lists the address, size and SHA-256 of every file")
+    except Exception as error:
+        print(f"[-] Extraction failed: {type(error).__name__}: {error}")
+
+
 def discover_menu():
     print("[*] Looking for consoles on the local network...")
     found = discover_consoles()
@@ -116,11 +129,14 @@ def choose_process(ps5):
                 print("[*] No process returned. Use R to try refreshing.")
             previous = current
             refresh = False
-        entry = input("[?] PID (0 = kernel) | R = refresh | C = concatenate | quit: ").strip()
+        entry = input("[?] PID (0 = kernel) | R = refresh | C = concatenate | E = extract files | quit: ").strip()
         if not entry or entry.lower() in ("quit", "q", "exit"):
             return None, procs
         if entry.lower() in ("c", "concatenate"):
             concatenate_menu()
+            continue
+        if entry.lower() in ("e", "extract"):
+            extract_menu()
             continue
         if entry.lower() in ("r", "refresh"):
             refresh = True
@@ -128,7 +144,7 @@ def choose_process(ps5):
         try:
             pid = int(entry)
         except ValueError:
-            print("[-] Enter a PID, R to refresh, C to concatenate or quit.")
+            print("[-] Enter a PID, R to refresh, C to concatenate, E to extract files or quit.")
             continue
         if pid < 0 or (pid != 0 and not any(p.pid == pid for p in procs)):
             print("[-] That PID is not in the list. Use R to refresh.")
@@ -165,6 +181,15 @@ def build_parser():
     resume.add_argument("--resume", metavar="FOLDER", help="continue an interrupted or incomplete dump")
     resume.add_argument("--retry-gaps", action="store_true", help="with --resume, read unreadable gaps again")
     offline = parser.add_argument_group("offline (no console)")
+    offline.add_argument("--extract", metavar="SOURCE",
+                         help="copy the files stored in a dump (SELF/ELF, sfo, PNG, JPEG, audio, ZIP...) to a folder; "
+                              "SOURCE is a dump folder, a folder of .bin files or one file")
+    offline.add_argument("--extract-output", metavar="FOLDER",
+                         help="new folder for --extract (default: 'extracted' inside the dump folder)")
+    offline.add_argument("--extract-types", metavar="LIST",
+                         help=f"only these types, comma-separated: {','.join(EXTRACT_TYPES)}")
+    offline.add_argument("--strings", action="store_true",
+                         help="with --extract, also write the ASCII/UTF-16 text strings of each .bin")
     offline.add_argument("--concat", metavar="FOLDER", help="concatenate the .bin files in the folder")
     offline.add_argument("--concat-output", metavar="FILE", help="concatenation destination (new file)")
     offline.add_argument("--export-elf", metavar="FOLDER", help="export a dump as an x86-64 ELF for Ghidra/IDA")
@@ -183,15 +208,16 @@ def build_parser():
     return parser
 
 
-OFFLINE_ACTIONS = ("concat", "export_elf", "compare", "search")
-OFFLINE_OPTIONS = dict(concat_output="concat", elf_output="export_elf", value="search", then="search")
-OFFLINE_FLAGS = dict(unaligned="search", writable_only="search")
+OFFLINE_ACTIONS = ("extract", "concat", "export_elf", "compare", "search")
+OFFLINE_OPTIONS = dict(extract_output="extract", extract_types="extract", concat_output="concat",
+                       elf_output="export_elf", value="search", then="search")
+OFFLINE_FLAGS = dict(strings="extract", unaligned="search", writable_only="search")
 
 
 def validate(parser, args):
     offline = [name for name in OFFLINE_ACTIONS if getattr(args, name)]
     if len(offline) > 1:
-        parser.error("choose only one of --concat, --export-elf, --compare and --search")
+        parser.error("choose only one of --extract, --concat, --export-elf, --compare and --search")
     for option, action in {**OFFLINE_OPTIONS, **OFFLINE_FLAGS}.items():
         if getattr(args, option) and not getattr(args, action):
             parser.error(f"--{option.replace('_', '-')} needs --{action.replace('_', '-')}")
@@ -208,8 +234,8 @@ def validate(parser, args):
         action = offline[0]
         if console_used:
             parser.error(f"--{action.replace('_', '-')} works offline and cannot be combined with console options")
-        if (args.prot or args.name) and action != "export_elf":
-            parser.error("--prot/--name apply to dumps and --export-elf")
+        if (args.prot or args.name) and action not in ("export_elf", "extract"):
+            parser.error("--prot/--name apply to dumps, --export-elf and --extract")
         if action == "search" and not args.value:
             parser.error("--search needs --value")
         for then in args.then or []:
@@ -235,19 +261,34 @@ def validate(parser, args):
     return None
 
 
+def filtered_regions(folder, args):
+    """Regions of a dump with data that match --prot and --name."""
+    required = parse_prot(args.prot)
+    name = (args.name or "").lower()
+    return [r for r in load_manifest(folder)["regions"] if r.get("file")
+            and ((r.get("prot") or 0) & required) == required and name in r.get("name", "").lower()]
+
+
 def run_offline(action, args):
     reporter = ConsoleReporter()
     try:
-        if action == "concat":
+        if action == "extract":
+            source = Path(args.extract).expanduser().resolve()
+            regions = filtered_regions(source, args) if args.prot or args.name else None
+            if regions == []:
+                raise ValueError("No region with data matches --prot/--name")
+            kinds = None
+            if args.extract_types:
+                kinds = [kind.strip().lower() for kind in args.extract_types.split(",") if kind.strip()]
+            result = extract_files(source, args.extract_output, regions, kinds, args.strings, reporter=reporter)
+            print(f"[*] {result['index']} lists the address, size and SHA-256 of every file")
+        elif action == "concat":
             source = Path(args.concat).expanduser().resolve()
             destination = args.concat_output or source.parent / f"{source.name}_concatenated.bin"
             concatenate_files(list_bin_files(source), destination, reporter)
         elif action == "export_elf":
             folder = Path(args.export_elf).expanduser().resolve()
-            required = parse_prot(args.prot)
-            name = (args.name or "").lower()
-            regions = [r for r in load_manifest(folder)["regions"] if r.get("file")
-                       and ((r.get("prot") or 0) & required) == required and name in r.get("name", "").lower()]
+            regions = filtered_regions(folder, args)
             destination = args.elf_output or folder.parent / f"{folder.name}.elf"
             result = export_elf(folder, regions, destination, args.elf_type, reporter)
             print(f"[*] Open it in Ghidra/IDA as ELF x86-64; segments start at {result['start']}")
@@ -287,7 +328,7 @@ def run_offline(action, args):
 
 
 def ask_ip(args):
-    """IP from --ip, --discover or the prompt (where C opens the concatenation menu)."""
+    """IP from --ip, --discover or the prompt (where C opens the concatenation menu and E the extraction one)."""
     if args.ip is not None:
         ip = args.ip.strip()
         if not ip:
@@ -297,9 +338,12 @@ def ask_ip(args):
         return discover_menu()
     ip = None
     while not ip:
-        ip = input("[?] PS5 IP (D = discover, C = concatenate files): ").strip()
+        ip = input("[?] PS5 IP (D = discover, C = concatenate files, E = extract files): ").strip()
         if ip.lower() in ("c", "concatenate"):
             concatenate_menu()
+            ip = None
+        elif ip.lower() in ("e", "extract"):
+            extract_menu()
             ip = None
         elif ip.lower() in ("d", "discover"):
             ip = discover_menu()

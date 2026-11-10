@@ -7,7 +7,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.14-0b0b0b?labelColor=1b1b1b&color=2f8cff">
   <img alt="GUI" src="https://img.shields.io/badge/GUI-PySide6%20(Qt%206)-0b0b0b?labelColor=1b1b1b&color=d6a849">
   <img alt="Payload" src="https://img.shields.io/badge/payload-ps5debug--NG-0b0b0b?labelColor=1b1b1b&color=2f8cff">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.0.1-0b0b0b?labelColor=1b1b1b&color=d6a849">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.0.2-0b0b0b?labelColor=1b1b1b&color=d6a849">
   <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/badge/licence-GPL--3.0-0b0b0b?labelColor=1b1b1b&color=2f8cff"></a>
   <a href="https://github.com/ramalhoboss/ps5-memory-dumper/releases/latest"><img alt="Download" src="https://img.shields.io/badge/download-Windows%20.exe-0b0b0b?labelColor=1b1b1b&color=d6a849"></a>
 </p>
@@ -54,9 +54,10 @@ Developed by **RamalhoBoss** · [x.com/nuno_leugim_10](https://x.com/nuno_leugim
 | ⏯️ **Resume** | A cancelled, failed or interrupted dump continues where it stopped: complete regions are kept, partial files are continued, and with *retry gaps* unreadable pages are read again and patched in place. Refuses if the process or kernel changed. |
 | 🔁 **Auto-reconnect** | When the connection drops during a process dump, it reconnects and repeats the same request (1, 2, 4… s, up to 30 s between tries, 5 tries by default). |
 | 📦 **Exports** | **Flat image** of the ticked regions placed by address (holes become zeros). **ELF64 x86-64** with one `PT_LOAD` segment per region at its real address, for Ghidra / IDA. Literal concatenation of `.bin` files. |
+| 🗂️ **Extract files** | Finds the files stored in memory and copies each one to a folder: PS4/PS5 **SELF** and ELF, `param.sfo`, the PS5 menu apps (**React Native** `application.ps.bundle`, decrypted in memory, and its **Hermes** bytecode, named by title ID and app, e.g. `NPXS40002_rnps-home`), HTML pages, PNG, JPEG, GIF, WAV/AT9, Ogg, ZIP, GZIP, SQLite and certificates. Every hit is checked by walking its format, files are named by the address where they were found, repeats are saved once, and `index.csv` lists address, size and SHA-256. Optionally saves the text strings of each region too. |
 | 🔍 **Compare dumps** | Changed byte ranges between two dumps of the same process, per region, with before/after bytes and CSV export. |
 | 🎯 **Value search** | First scan in one dump, then *next scans* in later dumps: equals, changed, unchanged, increased, decreased. Types: int8/16/32/64, float, double, string, UTF-16, and byte patterns with `??` wildcards. CSV export. |
-| 🧰 **Tools** | Split a large snapshot into data segments by zero runs and restore it exactly, with SHA-256 checks. |
+| 🧰 **Tools** | Extract files from any `.bin` (not only dumps). Split a large snapshot into data segments by zero runs and restore it exactly, with SHA-256 checks. |
 | 🧾 **Manifests** | Every dump writes `manifest.json`: regions, gaps, errors, SHA-256 per file, status, reconnects and resumes. Older dumps (`mapas.json`) are read too. |
 
 ## Screenshots
@@ -121,6 +122,7 @@ flowchart LR
     B --> D["Dumps<br/>status · resume"]
     K --> D
     D --> E["Flat image / ELF<br/>Ghidra · IDA"]
+    D --> X["Extract files<br/>SELF · images · audio"]
     D --> F["Analyze<br/>compare · search"]
 ```
 
@@ -129,16 +131,16 @@ flowchart LR
 | **Connection** | *Find on network* or type the PS5 IP, then *Connect*. The card shows the payload, firmware and running game. *Dump running app* opens the game's regions. *Auto-reconnect during dumps* sets how many times a dump reconnects by itself. |
 | **Processes** | Pick a process, filter its regions (name, writable, executable, maximum size), *Select matching* or tick them by hand, then *Dump selected*. *Zero-fill unreadable gaps* keeps file offsets equal to address offsets (recommended). |
 | **Kernel** | First disable the hypervisor on the PS5: the page warns about it and asks you to confirm before every kernel dump. *Full kernel – automatic (13.60)* detects the start and exact size and reads that many bytes. *Manual range – advanced*: read the `.data` base, enter a start address and a size (up to 83 MiB), optionally with experimental page recovery. |
-| **Dumps** | Every dump in the dumps folder, newest first, with its status. *Resume dump* continues an unfinished one. Tick regions (*Executable* ticks the code regions) and choose *Merge into flat image…* or *Export ELF…*. |
+| **Dumps** | Every dump in the dumps folder, newest first, with its status. *Resume dump* continues an unfinished one. Tick regions (*Executable* ticks the code regions) and choose *Merge into flat image…* or *Export ELF…*. *Extract files…* copies the files stored in the dump (the ticked regions, or all of them) to an `extracted` folder inside it. |
 | **Analyze** | *Compare dumps*: pick *Before* and *After*. *Search values*: first scan a value in one dump, then keep only the addresses that changed the way you expect in a later dump (for example ammo 30 → 29: first scan 30, next scan *Decreased*). Double-click copies an address; both tabs export CSV. |
-| **Tools** | Concatenate `.bin` files byte for byte; split a snapshot by zero runs and restore it with SHA-256 checks. |
+| **Tools** | *Extract files from .bin*: a dump folder, a folder of `.bin` files or a single file. Concatenate `.bin` files byte for byte; split a snapshot by zero runs and restore it with SHA-256 checks. |
 
 Settings (IP history, dumps folder, zero-fill, reconnect attempts, window layout) are remembered between runs.
 
 ## Command line
 
 The same engine runs from the terminal. With no arguments `ps5_dumper.py` is interactive (`D` discovers consoles,
-`C` opens the concatenation menu).
+`C` opens the concatenation menu, `E` extracts files).
 
 ```bash
 # dumps (console needed)
@@ -151,6 +153,9 @@ python ps5_dumper.py --ip 192.168.1.50 --resume dumps/eboot.bin_118_20261028_112
 python ps5_dumper.py --ip 192.168.1.50 --resume dumps/... --retry-gaps
 
 # offline (no console)
+python ps5_dumper.py --extract dumps/some_dump --strings                            # files stored in memory -> some_dump/extracted
+python ps5_dumper.py --extract eboot_dump.bin --extract-types self,elf,png          # one file, some types only
+python ps5_dumper.py --extract dumps/SceShellUI_dump --extract-types rnps,hbc,html  # PS5 menu apps (React Native)
 python ps5_dumper.py --export-elf dumps/some_dump --prot x                         # ELF for Ghidra/IDA
 python ps5_dumper.py --concat dumps/some_dump                                       # literal concatenation
 python ps5_dumper.py --compare dumps/before dumps/after --report changes.csv
@@ -166,7 +171,7 @@ python segment_memory.py split big.raw out_dir --base 0x400000                  
 | `--ip IP` / `--discover` | Console address, or find it on the LAN. |
 | `--retries N` | Reconnections per request when the connection drops (default 5, `0` = off). |
 | `--pid PID` | Process to dump (`0` = kernel, hypervisor must be disabled); skips the interactive menu. |
-| `--prot x\|rw\|…` | Only regions that have all these permissions (dumps and `--export-elf`). |
+| `--prot x\|rw\|…` | Only regions that have all these permissions (dumps, `--export-elf` and `--extract`). |
 | `--name TEXT` | Only regions whose name contains TEXT, case-insensitive. |
 | `--max-region-mib N` | Skip regions larger than N MiB. |
 | `--no-fill-gaps` | Old format: only received bytes are written, so offsets drift after a gap. |
@@ -175,6 +180,8 @@ python segment_memory.py split big.raw out_dir --base 0x400000                  
 | `--kernel-recover` | **Experimental**: split refused kernel blocks and zero-fill them. A fault in kernel mode restarts the console. |
 | `--output FOLDER` | New destination folder; existing folders are never replaced. |
 | `--resume FOLDER` / `--retry-gaps` | Continue an unfinished dump; optionally read its gaps again. |
+| `--extract SOURCE` / `--extract-output FOLDER` | Copy the files stored in a dump folder, a folder of `.bin` files or one file to a new folder (default: `extracted` inside the dump). |
+| `--extract-types LIST` / `--strings` | Only these types (`elf self sfo rnps hbc html png jpg gif riff ogg zip gz sqlite pem`, comma-separated); also write the text strings of each `.bin`. |
 | `--export-elf FOLDER` / `--elf-output FILE` / `--elf-type exec\|core` | ELF export. |
 | `--concat FOLDER` / `--concat-output FILE` | Literal concatenation of the `.bin` files. |
 | `--compare BEFORE AFTER` | Changed byte ranges between two dumps. |
@@ -253,6 +260,10 @@ flowchart LR
 - **Auto-reconnect** (process dumps): on a dropped connection or protocol error it closes, reconnects and repeats
   the same read, waiting 1, 2, 4… s (at most 30 s). Reads have no side effects, so repeating them is safe. Each
   reconnection is counted in the manifest.
+- **Refused process maps**: ps5debug-NG closes its connection when it refuses a process's memory map (the process
+  exited, has no user maps, or is restricted). The Processes page reopens the connection once without repeating
+  the refused request, clears the previous regions and lets you choose another process; a failed reconnection is
+  still reported as a disconnection. This does not give access to processes whose maps the payload cannot provide.
 
 ### Kernel capture
 
@@ -282,6 +293,32 @@ flowchart LR
   `p_vaddr` = region start, `p_filesz` = bytes in the file, `p_memsz` = region size, flags from the region
   permissions, page-aligned file offsets, no section headers. Open it in Ghidra or IDA and every region appears at
   its real address.
+
+### Extracting files
+
+Each `.bin` is searched for the signatures of the supported formats, and every hit is checked by a parser that
+walks the format's own structure to find where the file ends: SELF and ELF headers (PS4 and PS5 SELF, SCE ELF
+types), RNPS bundle headers, the Hermes header and its SHA-1 footer, HTML documents up to `</html>`, PNG chunks,
+JPEG markers and scan data, GIF blocks, RIFF sizes, Ogg pages, the ZIP central directory, the GZIP stream (inflated
+and CRC-checked), SQLite pages, PSF tables and PEM armour. Hits that do not parse are ignored, so random bytes that
+happen to match a signature are not extracted.
+
+- Files go to one folder per type and are named by the address where they start (by file and offset for loose
+  `.bin` files). `index.csv` lists type, address, region, size, SHA-256 and a note (dimensions, ELF type, codec…).
+- Hits inside a SELF, ZIP or Ogg file belong to it and are not extracted separately. Files with the same content are
+  written once; the index points repeats to the first copy.
+- A file that continues past the end of its region is saved up to that point with `_truncated` in its name.
+- An ELF whose segments look encrypted or compressed is flagged, and cut where the next ELF starts, because its
+  headers then do not describe how it is stored.
+- **PS5 menu apps.** The home screen, control center, capture menu, checkout and other system UI apps are React
+  Native `application.ps.bundle` files: a header, Sony certificates, Hermes bytecode and a signature. On the SSD the
+  bytecode is encrypted; SceShellUI keeps it decrypted in memory. The bundle is saved, and the `.hbc` inside it on its
+  own too, both named after the app taken from its certificate, as is HTML found inside it. The app's title ID is
+  added in front (`NPXS40002_rnps-home_…`) when the dump also holds the shell's app table, an app manifest or a
+  telemetry block that names it; the whole dump is read for this, even when only some regions are ticked. `.hbc`
+  files open in Hermes decompilers. Memory holds no folders: `NPXS40002` is the app's folder on the SSD.
+- *Text strings* writes `strings/<region>.txt`: one line per ASCII or UTF-16 string of 6+ characters, with its
+  address.
 
 ### Compare and search
 
@@ -354,6 +391,7 @@ ps5dumper/
 │   ├── manifest.py       manifest.json v2, legacy mapas.json
 │   ├── console.py        discovery, connection, console info
 │   ├── files.py          flat image, ELF export, concatenation
+│   ├── extract.py        file extraction from .bin, text strings
 │   ├── analysis.py       compare dumps, value search
 │   └── segment.py        split / restore by zero runs
 ├── gui/             PySide6 app: main_window, worker threads, theme, widgets, pages/, assets/
@@ -375,9 +413,10 @@ icone 2.png, Icon.png, Logo.jpg                         app icon, sidebar emblem
 python -m unittest discover -s tests -v
 ```
 
-The tests cover kernel layout detection and kernel request safeguards offline. During development the app was also
-exercised end to end against a simulated console (dumps with holes, cancel and resume, dropped connections,
-compare and search) and against real dumps (flat images, ELF export checked with an independent ELF reader).
+The tests cover kernel layout detection, kernel request safeguards and file extraction offline. During development
+the app was also exercised end to end against a simulated console (dumps with holes, cancel and resume, dropped
+connections, compare and search) and against real dumps (flat images, ELF export checked with an independent ELF
+reader; file extraction finds the seven PS5 SELF images stored in a 13.60 kernel dump).
 
 **Not yet verified on hardware**: the real payload's behaviour on dropped connections, refused kernel pages and
 resume timing, and the automatic kernel capture (with the hypervisor disabled), still need a first run on a console.

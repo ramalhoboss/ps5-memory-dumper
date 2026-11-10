@@ -1,13 +1,14 @@
-"""Tools page: offline work on dumped files (concatenation, zero-run segmentation)."""
+"""Tools page: offline work on dumped files (file extraction, concatenation, zero-run segmentation)."""
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QLineEdit, QListWidget, QListWidgetItem,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFileDialog, QLineEdit, QListWidget, QListWidgetItem,
                                QMessageBox, QSpinBox, QVBoxLayout, QWidget)
 
+from ...core.extract import extract_files
 from ...core.files import concatenate_files, list_bin_files
 from ...core.segment import restore, segment
-from ..dialogs import open_folder
+from ..dialogs import open_folder, show_extract_result
 from ..widgets import Card, button, human_size, row
 
 
@@ -26,6 +27,24 @@ class ToolsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
+
+        extract = Card("Extract files from .bin",
+                       "Finds the files stored in memory (SELF/ELF, param.sfo, PS5 menu apps: React Native bundles "
+                       "and Hermes bytecode, HTML, PNG, JPEG, GIF, WAV/AT9, Ogg, ZIP, GZIP, SQLite, certificates) "
+                       "and copies each one to a new folder, with index.csv. Takes a dump folder (files are named "
+                       "by address), a folder of .bin files or a single file.")
+        self.extract_source = _path_field("Dump folder, folder of .bin files, or one file")
+        self.extract_source.returnPressed.connect(self.extract)
+        browse_file, browse_dir = button("File…"), button("Folder…")
+        browse_file.clicked.connect(self.browse_extract_file)
+        browse_dir.clicked.connect(self.browse_extract_folder)
+        self.extract_strings = QCheckBox("Text strings too")
+        self.extract_strings.setToolTip("Also write strings/<file>.txt with the ASCII and UTF-16 text of each .bin")
+        self.extract_button = button("Extract", "primary")
+        self.extract_button.clicked.connect(self.extract)
+        extract.body.addLayout(row(self.extract_source, browse_file, browse_dir, 12, self.extract_strings,
+                                   self.extract_button, stretch_at=0))
+        layout.addWidget(extract)
 
         concat = Card("Concatenate .bin files",
                       "Joins files byte for byte in the order below (drag to reorder). Addresses and gaps are "
@@ -81,13 +100,39 @@ class ToolsPage(QWidget):
 
     def update_buttons(self, *_):
         idle = not self.session.background.busy
-        for widget in (self.concat_button, self.split_button, self.restore_button):
+        for widget in (self.extract_button, self.concat_button, self.split_button, self.restore_button):
             widget.setEnabled(idle)
 
     def run(self, task, title, done_text):
         def done(result):
             QMessageBox.information(self, title, done_text(result))
         self.session.background.run(task, done, title=title)
+
+    # -- extraction --------------------------------------------------------
+
+    def browse_extract_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "File to extract from", str(self.settings.dumps_dir),
+                                              "Memory dumps (*.bin *.raw *.elf *.self);;All files (*)")
+        if path:
+            self.extract_source.setText(path)
+
+    def browse_extract_folder(self):
+        path = QFileDialog.getExistingDirectory(self, "Dump folder or folder with .bin files",
+                                                str(self.settings.dumps_dir))
+        if path:
+            self.extract_source.setText(path)
+
+    def extract(self):
+        text = self.extract_source.text().strip().strip('"')
+        if not text or not Path(text).expanduser().exists():
+            QMessageBox.warning(self, "Extract files", "Choose a dump folder, a folder with .bin files or a file.")
+            return
+        if self.session.background.busy:
+            return
+        source, strings = Path(text).expanduser(), self.extract_strings.isChecked()
+        self.session.background.run(
+            lambda reporter, cancel: extract_files(source, strings=strings, reporter=reporter, cancel=cancel),
+            lambda result: show_extract_result(self, result), title="Extracting files")
 
     # -- concatenation -----------------------------------------------------
 

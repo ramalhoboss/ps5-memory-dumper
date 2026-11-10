@@ -27,7 +27,7 @@ PAGES = (
     ("Connection", "Find your console, connect and see what is running."),
     ("Processes", "Dump the memory regions of a running process."),
     ("Kernel", "Detect and dump the kernel image, or select an explicit memory range."),
-    ("Dumps", "Browse saved dumps, resume them, and export flat images or ELF files."),
+    ("Dumps", "Browse saved dumps, resume them, extract the files inside them, and export flat images or ELF files."),
     ("Analyze", "Compare dumps and search values, offline."),
     ("Tools", "Work with dumped files offline."),
 )

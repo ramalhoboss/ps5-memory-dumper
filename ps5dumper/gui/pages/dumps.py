@@ -5,10 +5,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QFileDialog, QMessageBox, QSplitter, QVBoxLayout, QWidget
 
 from ...core.dumper import HYPERVISOR_WARNING, prot_string, resume_dump
+from ...core.extract import default_destination, extract_files
 from ...core.files import MAX_MERGE_SPAN, export_elf, merge_regions
 from ...core.manifest import dump_status, list_dumps, process_name, started_at
 from ...core.reader import MIB
-from ..dialogs import confirm, open_folder, show_dump_failure, show_dump_result
+from ..dialogs import confirm, open_folder, show_dump_failure, show_dump_result, show_extract_result
 from ..widgets import Card, SortItem, button, human_size, label, row, table, tinted
 
 STATUS_TONES = dict(complete="success", incomplete="warning", cancelled="warning", failed="danger",
@@ -78,6 +79,9 @@ class DumpsPage(QWidget):
         self.select_exec = button("Executable", "link", "Tick the executable regions (r-x) and the contiguous "
                                                         "regions after them that share their name")
         select_all, select_none = button("All", "link"), button("None", "link")
+        self.extract_button = button("Extract files…", tooltip="Find the files stored in the dump (SELF/ELF, PNG, "
+                                                               "JPEG, audio, ZIP...) and copy each one to a folder; "
+                                                               "uses the ticked regions, or all of them")
         self.elf_button = button("Export ELF…", tooltip="One PT_LOAD segment per ticked region at its address "
                                                         "(ET_EXEC; use the command line for ET_CORE)")
         self.merge_button = button("Merge into flat image…", "primary")
@@ -85,11 +89,12 @@ class DumpsPage(QWidget):
         self.select_exec.clicked.connect(self.select_executable)
         select_all.clicked.connect(lambda: self.set_checks(lambda r: True))
         select_none.clicked.connect(lambda: self.set_checks(lambda r: False))
+        self.extract_button.clicked.connect(self.extract)
         self.elf_button.clicked.connect(self.export_elf)
         self.merge_button.clicked.connect(self.merge)
         self.merge_info = label("", muted=True)
         detail.body.addLayout(row(self.open_dump, self.select_exec, select_all, select_none, None,
-                                  self.merge_info, self.elf_button, self.merge_button))
+                                  self.merge_info, self.extract_button, self.elf_button, self.merge_button))
 
         splitter = QSplitter(Qt.Vertical)
         splitter.setChildrenCollapsible(False)
@@ -233,6 +238,7 @@ class DumpsPage(QWidget):
         idle = not self.session.background.busy
         self.merge_button.setEnabled(bool(checked) and idle)
         self.elf_button.setEnabled(bool(checked) and idle)
+        self.extract_button.setEnabled(self.selected is not None and idle)
         self.open_dump.setEnabled(self.selected is not None)
         self.select_exec.setEnabled(self.selected is not None)
         resumable = (self.selected is not None and self.selected[1].get("type") in ("process", "kernel")
@@ -272,6 +278,29 @@ class DumpsPage(QWidget):
             self.refresh()
 
         self.session.console.run(task, done, failed, title=f"Resuming {folder.name}")
+
+    def extract(self):
+        folder, _ = self.selected
+        regions = self.checked_regions()
+        scope = f"the {len(regions)} ticked region(s)" if regions else "every region of this dump"
+        box = QMessageBox(QMessageBox.Question, "Extract files",
+                          f"Find the files stored in {scope} and copy each one to a new folder:\n"
+                          f"{default_destination(folder)}\n\nLooks for SELF/ELF, param.sfo, the PS5 menu apps (React "
+                          "Native bundles and their Hermes bytecode), HTML, PNG, JPEG, GIF, WAV/AT9, Ogg, ZIP, GZIP, "
+                          "SQLite and certificates. Each type gets its own folder; files are named by the address "
+                          "where they were found, and menu app files also by the app's title ID and name "
+                          "(NPXS40002_rnps-home…).", parent=self)
+        strings = QCheckBox("Also save the text strings of each region")
+        box.setCheckBox(strings)
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+        box.button(QMessageBox.Yes).setText("Extract")
+        if box.exec() != QMessageBox.Yes:
+            return
+        with_strings = strings.isChecked()
+        self.session.background.run(
+            lambda reporter, cancel: extract_files(folder, regions=regions or None, strings=with_strings,
+                                                   reporter=reporter, cancel=cancel),
+            lambda result: show_extract_result(self, result), title="Extracting files")
 
     def export_elf(self):
         folder, _ = self.selected
