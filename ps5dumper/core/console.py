@@ -50,13 +50,38 @@ def console_info(ps5):
     return info
 
 
-def process_details(ps5, pid):
+def process_details(ps5, pid, reporter=None):
     """Title id / content id / path for the manifest, or {} if the payload refuses."""
     if pid == 0:
         return {}
     try:
         detail = ps5.proc_info(pid)
-    except BadStatus:
+    except PS5DbgError as error:
+        if reporter is not None:
+            reporter.log(f"Optional process info unavailable for PID {pid}: {error}; reopening connection.", "warn")
+        ps5.close()
+        ps5.connect()
         return {}
     return {key: value for key, value in dict(path=detail.path, title_id=detail.titleid,
                                                content_id=detail.contentid).items() if value}
+
+
+def process_maps(ps5, pid, reporter):
+    """Return maps, or None for a payload refusal after reopening the socket.
+
+    ps5debug-NG's proc_maps_handle returns a nonzero result for ERROR/empty
+    maps, so its client loop closes that TCP connection. Do not replay the
+    refused request; reconnect once for the user's next operation instead.
+    Transport failures still propagate so the GUI can mark a real disconnect.
+    """
+    if pid == 0:
+        raise ValueError("PID 0 uses the Kernel page, not process maps")
+    try:
+        return list(ps5.maps(pid))
+    except BadStatus as error:
+        reporter.log(f"Maps unavailable for PID {pid}: {error}. "
+                     "The process may have exited, have no user memory maps, or be restricted.", "warn")
+        ps5.close()
+        ps5.connect()
+        reporter.log("Connection reopened; choose another process or Refresh to try again.", "ok")
+        return None

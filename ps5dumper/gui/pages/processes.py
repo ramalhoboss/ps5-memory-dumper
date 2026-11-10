@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSplitter, QVBoxLayout, QWidget
 from ps5dbg.errors import BadStatus
 
-from ...core.console import process_details
+from ...core.console import process_details, process_maps
 from ...core.dumper import (create_output_dir, dump_process, filter_regions, prot_string, readable_regions,
                             safe_name)
 from ..dialogs import describe_error, show_dump_failure, show_dump_result
@@ -111,8 +111,11 @@ class ProcessesPage(QWidget):
 
     def update_buttons(self, *_):
         busy = self.session.console.busy
+        self.procs.setEnabled(self.session.connected and not busy)
         self.refresh_button.setEnabled(self.session.connected and not busy)
-        self.dump_button.setEnabled(self.session.connected and not busy and bool(self.checked_maps()))
+        target_matches = self.current is not None and self.selected_process() == self.current
+        self.dump_button.setEnabled(self.session.connected and not busy and target_matches and bool(self.checked_maps()))
+        self.dump_button.setText(f"Dump {self.current[1]} (PID {self.current[0]})" if target_matches else "Dump selected")
 
     # -- processes ---------------------------------------------------------
 
@@ -174,12 +177,22 @@ class ProcessesPage(QWidget):
                 self.procs.scrollToItem(self.procs.item(r, 0))
                 return
 
-    def process_selected(self):
+    def selected_process(self):
         rows = self.procs.selectionModel().selectedRows()
         if not rows:
+            return None
+        r = rows[0].row()
+        return int(self.procs.item(r, 0).text()), self.procs.item(r, 1).text()
+
+    def process_selected(self):
+        target = self.selected_process()
+        if target is None:
+            self.current = None
+            self.maps = []
+            self.regions.setRowCount(0)
+            self.update_selection()
             return
-        pid = int(self.procs.item(rows[0].row(), 0).text())
-        name = self.procs.item(rows[0].row(), 1).text()
+        pid, name = target
         if self.current != (pid, name):
             self.load_regions(pid, name)
 
@@ -195,15 +208,46 @@ class ProcessesPage(QWidget):
             self.kernel_requested.emit()
             return
 
+        if self.session.console.busy:
+            self.current = None
+            self.maps = []
+            self.regions.setRowCount(0)
+            self.region_title.setText("Wait for the current task, then select the process again.")
+            self.update_selection()
+            return
+        # A new selection must never retain dumpable regions from another PID.
+        self.current = None
+        self.maps = []
+        self.regions.setRowCount(0)
+        self.update_selection()
+
         def task(reporter, cancel):
-            return readable_regions(self.session.ps5.maps(pid))
+            maps = process_maps(self.session.ps5, pid, reporter)
+            return None if maps is None else readable_regions(maps)
 
         def done(maps):
+            if self.selected_process() != (pid, name):
+                self.current = None
+                self.maps = []
+                self.regions.setRowCount(0)
+                self.region_title.setText("Selection changed. Select the process again to load its regions.")
+                self.update_selection()
+                return
+            if maps is None:
+                self.region_title.setText(
+                    f"Maps unavailable for {name} (PID {pid}). The payload refused the request. "
+                    "Connection reopened. Choose another process or Refresh to try again.")
+                self.update_selection()
+                return
             self.current = (pid, name)
             self.maps = maps
             self.show_regions()
 
         def failed(error):
+            self.current = None
+            self.maps = []
+            self.regions.setRowCount(0)
+            self.update_selection()
             self.region_title.setText(f"Could not read the maps of {name} (PID {pid}). {describe_error(error)}")
 
         if self.session.console.run(task, done, failed):
@@ -266,6 +310,15 @@ class ProcessesPage(QWidget):
     # -- dump --------------------------------------------------------------
 
     def start_dump(self):
+        if self.session.console.busy:
+            return
+        if self.current is None or self.selected_process() != self.current:
+            self.current = None
+            self.maps = []
+            self.regions.setRowCount(0)
+            self.region_title.setText("Select a process and wait for its own regions before dumping.")
+            self.update_selection()
+            return
         selected = self.checked_maps()
         if not selected or self.current is None:
             return
@@ -280,7 +333,7 @@ class ProcessesPage(QWidget):
             folder = state["folder"] = create_output_dir(f"{safe_name(name)}_{pid}", required=total, root=root)
             reporter.log(f"Destination: {folder}")
             reporter.log(f"Reading {human_size(total)} in {len(selected)} regions of {name} (PID {pid})")
-            info = dict(console=ip, process=name, **process_details(ps5, pid))
+            info = dict(console=ip, process=name, **process_details(ps5, pid, reporter))
             return dump_process(ps5, pid, selected, folder, reporter, cancel, fill_gaps, info, retries)
 
         self.session.console.run(task, lambda document: show_dump_result(self, document, state["folder"]),
